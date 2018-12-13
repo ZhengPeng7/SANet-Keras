@@ -10,6 +10,8 @@ def conv_parallel(x, num_channel_out, IN=True, reduction_layer=True):
     for idx in range(num_kernel_sizes):
         if reduction_layer and idx != 0:
             x = Conv2D(num_channel_out//2, (1, 1), padding='same', activation='relu')(x)
+            if IN:
+                x = InstanceNormalization()(x)
         x = Conv2D(num_channel_out, (kernel_sizes[idx], kernel_sizes[idx]), padding='same', activation='relu', use_bias=(not IN))(x)
         if IN:
             branches.append(InstanceNormalization()(x))
@@ -19,10 +21,11 @@ def conv_parallel(x, num_channel_out, IN=True, reduction_layer=True):
     return x
 
 
-def encoder(x, num_channel_out_lst=[16, 32, 32, 32]):
+def encoder(x, num_channel_out_lst=[16, 32, 32, 16]):
     for idx_num_channel_out in range(len(num_channel_out_lst)):
         x = conv_parallel(x, num_channel_out_lst[idx_num_channel_out], reduction_layer=(idx_num_channel_out != 0))
-        x = MaxPooling2D(pool_size=(2, 2), strides=2)(x)
+        if idx_num_channel_out < len(num_channel_out_lst) - 1:
+            x = MaxPooling2D(pool_size=(2, 2), strides=2)(x)
     return x
 
 
@@ -35,6 +38,8 @@ def decoder(x, IN=True):
         if IN:
             x = InstanceNormalization()(x)
         x = Conv2DTranspose(num_channel_out_lst[idx], (2, 2), padding='same')(x)
+        if IN:
+            x = InstanceNormalization()(x)
     x = Conv2D(16, (3, 3), padding='same', activation='relu', use_bias=(not IN))(x)
     if IN:
         x = InstanceNormalization()(x)
