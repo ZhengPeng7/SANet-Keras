@@ -81,7 +81,7 @@ def load_img(path):
 def img_from_h5(path):
     gt_file = h5py.File(path, 'r')
     density_map = np.asarray(gt_file['density'])
-    stride = 16
+    stride = 8
     density_map_stride = np.zeros((np.asarray(density_map.shape).astype(int)//stride).tolist())
     for r in range(density_map_stride.shape[0]):
         for c in range(density_map_stride.shape[1]):
