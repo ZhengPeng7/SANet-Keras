@@ -44,7 +44,8 @@ def get_density_map_gaussian(im, points, adaptive_kernel=False, fixed_value=15):
         # filter_mask[gaussian_center] = 1
         # density_map += gaussian_filter(filter_mask, sigma, mode='constant')
 
-        # If you feel that the scipy api is too slow (gaussian_filter) -- Substitute it with codes below could make it about 30x times faster
+        # If you feel that the scipy api is too slow (gaussian_filter) -- Substitute it with codes below
+        # could make it about 100+ times faster, taking around one minute on the whole ShanghaiTech dataset.
 
         gaussian_radius = sigma * 2
         gaussian_map = np.multiply(
@@ -81,11 +82,11 @@ def img_from_h5(path):
     gt_file = h5py.File(path, 'r')
     density_map = np.asarray(gt_file['density'])
     stride = 16
-    density_map_quarter = np.zeros((np.asarray(density_map.shape).astype(int)//stride).tolist())
-    for r in range(density_map_quarter.shape[0]):
-        for c in range(density_map_quarter.shape[1]):
-            density_map_quarter[r, c] = np.sum(density_map[r*stride:(r+1)*stride, c*stride:(c+1)*stride])
-    return density_map_quarter
+    density_map_stride = np.zeros((np.asarray(density_map.shape).astype(int)//stride).tolist())
+    for r in range(density_map_stride.shape[0]):
+        for c in range(density_map_stride.shape[1]):
+            density_map_stride[r, c] = np.sum(density_map[r*stride:(r+1)*stride, c*stride:(c+1)*stride])
+    return density_map_stride
 
 
 def gen_x_y(img_paths, train_val_test='train'):
