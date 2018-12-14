@@ -11,9 +11,13 @@
 
   1. **Network = encoder + decoder**:
 
-     + Encoder and decoder:
+     + Encoder:
 
-       ![encoder](images/encoder.png)![decoder](images/decoder.png)
+       ![encoder](images/encoder.png)
+
+     + Decoder:
+
+       ![decoder](images/decoder.png)
 
      |   Network   |           encoder            |       decoder        |
      | :---------: | :--------------------------: | :------------------: |
@@ -22,7 +26,7 @@
 
   2. Loss:
 
-     Loss = ![](https://latex.codecogs.com/gif.latex?L_{Euclidean} + \alpha_CL_C\(L_C=1-\frac{1}{N}{\sum_x{SSIM(x)}}, \alpha_C=0.001))
+     Loss = ![loss_formular](https://latex.codecogs.com/gif.latex?L_{Euclidean}+\alpha_CL_C(L_C=1-\frac{1}{N}{\sum_x{SSIM(x)}},\alpha_C=0.001))
 
   3. Normalization layer:
 
