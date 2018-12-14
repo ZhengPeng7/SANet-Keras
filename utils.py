@@ -2,16 +2,14 @@ import os
 import cv2
 import glob
 import h5py
-import numpy as np
-from random import shuffle
-import cv2
 import math
-import numpy as np
 import scipy
-from scipy.ndimage.filters import gaussian_filter
+import random
+import numpy as np
 import tensorflow as tf
 import keras.backend as K
 from keras.losses import mean_squared_error
+from scipy.ndimage.filters import gaussian_filter
 
 
 def get_density_map_gaussian(im, points, adaptive_kernel=False, fixed_value=15):
@@ -45,7 +43,7 @@ def get_density_map_gaussian(im, points, adaptive_kernel=False, fixed_value=15):
         # density_map += gaussian_filter(filter_mask, sigma, mode='constant')
 
         # If you feel that the scipy api is too slow (gaussian_filter) -- Substitute it with codes below
-        # could make it about 100+ times faster, taking around one minute on the whole ShanghaiTech dataset.
+        # could make it about 100+ times faster, taking around 2 minutes on the whole ShanghaiTech dataset A and B.
 
         gaussian_radius = sigma * 2
         gaussian_map = np.multiply(
@@ -75,29 +73,64 @@ def load_img(path):
     img[:, :, 0]=(img[:, :, 0] - 0.485) / 0.229
     img[:, :, 1]=(img[:, :, 1] - 0.456) / 0.224
     img[:, :, 2]=(img[:, :, 2] - 0.406) / 0.225
-    return img
+    return img.astype(np.float32)
 
 
 def img_from_h5(path):
     gt_file = h5py.File(path, 'r')
     density_map = np.asarray(gt_file['density'])
-    stride = 8
-    density_map_stride = np.zeros((np.asarray(density_map.shape).astype(int)//stride).tolist())
-    for r in range(density_map_stride.shape[0]):
-        for c in range(density_map_stride.shape[1]):
-            density_map_stride[r, c] = np.sum(density_map[r*stride:(r+1)*stride, c*stride:(c+1)*stride])
+    stride = 1
+    if stride > 1:
+        density_map_stride = np.zeros((np.asarray(density_map.shape).astype(int)//stride).tolist(), dtype=np.float32)
+        for r in range(density_map_stride.shape[0]):
+            for c in range(density_map_stride.shape[1]):
+                density_map_stride[r, c] = np.sum(density_map[r*stride:(r+1)*stride, c*stride:(c+1)*stride])
+    else:
+        density_map_stride = density_map
     return density_map_stride
 
 
-def gen_x_y(img_paths, train_val_test='train'):
-    if train_val_test == 'train':
-        shuffle(img_paths)
+def gen_x_y(img_paths, train_val_test='train', augmentation_methods=[]):
     x, y = [], []
+    idx_shuffle = list(range(len(img_paths)))
+    random.shuffle(idx_shuffle)
+    img_paths = np.array(img_paths)[idx_shuffle].tolist()
     for i in img_paths:
         x_ = load_img(i)
         x.append(np.expand_dims(x_, axis=0))
+        x.append(np.expand_dims(cv2.flip(x_, 1), axis=0))
         y_ = img_from_h5(i.replace('.jpg', '.h5').replace('images', 'ground'))
         y.append(np.expand_dims(np.expand_dims(y_, axis=0), axis=-1))
+        y.append(np.expand_dims(np.expand_dims(cv2.flip(y_, 1), axis=0), axis=-1))
+    # if train_val_test == 'train':
+    #     # x, y = data_augmentation(x, y, augmentation_methods=augmentation_methods)
+    #     if 'flip' in augmentation_methods:
+    #         # Flip horizontally
+    #         x_flipped, y_flipped = [], []
+    #         for x_ in x:
+    #             x_flipped.append(x_[:, :, ::-1, :])
+    #         for y_ in y:
+    #             y_flipped.append(y_[:, :, ::-1, :])
+    #         x += x_flipped
+    #         y += y_flipped
+    #     if 'random_crop':
+    #         # Random cropping on training set
+    #         x_cropped, y_cropped = [], []
+    #         num_crop = 2
+    #         for idx_x in range(len(x)):
+    #             up_range_x, left_range_x = (np.array(x[idx_x].shape[1:-1]) / 2).astype(np.int)
+    #             up_range_y, left_range_y = (np.array(y[idx_x].shape[1:-1]) / 2).astype(np.int)
+    #             x_ = x[idx_x]
+    #             y_ = y[idx_x]
+    #             for _ in range(num_crop):
+    #                 up_x = random.randint(0, up_range_x-1)
+    #                 left_x = random.randint(0, left_range_x-1)
+    #                 x_cropped.append(x_[:, up_x:up_x+up_range_x, left_x:left_x+left_range_x, :])
+    #                 up_y = random.randint(0, up_range_y-1)
+    #                 left_y = random.randint(0, left_range_y-1)
+    #                 y_cropped.append(y_[:, up_y:up_y+up_range_y, left_y:left_y+left_range_y, :])
+    #         x, y = random_cropping(x, y)
+        # Shuffle
     return x, y, img_paths
 
 
@@ -143,8 +176,7 @@ def eval_path_files(dataset="A", validation_split=0.05):
         img_paths_test.append(str(img_path))
     print("len(img_paths_test) =", len(img_paths_test))
 
-    from random import shuffle
-    shuffle(img_paths_train)
+    random.shuffle(img_paths_train)
     lst_to_write = [img_paths_train, img_paths_train[:int(len(img_paths_train)*validation_split)], img_paths_test]
     for idx, i in enumerate(['train', 'val', 'test']):
         with open('data/paths_train_val_test/paths_'+dataset+'/paths_'+i+'.txt', 'w') as fout:
@@ -182,3 +214,39 @@ def ssim_eucli_loss(y_true, y_pred, alpha=0.001):
     eucli = mean_squared_error(y_true, y_pred)
     loss = eucli + alpha * ssim
     return loss
+
+
+# def random_cropping(x_train, y_train):
+#     # Random cropping on training set
+#     x_train_cropped, y_train_cropped = [], []
+#     num_crop = 2
+#     for idx_x in range(len(x_train)):
+#         up_range_x, left_range_x = (np.array(x_train[idx_x].shape[1:-1]) / 2).astype(np.int)
+#         up_range_y, left_range_y = (np.array(y_train[idx_x].shape[1:-1]) / 2).astype(np.int)
+#         x_ = x_train[idx_x]
+#         y_ = y_train[idx_x]
+#         for _ in range(num_crop):
+#             up_x = random.randint(0, up_range_x-1)
+#             left_x = random.randint(0, left_range_x-1)
+#             x_train_cropped.append(x_[:, up_x:up_x+up_range_x, left_x:left_x+left_range_x, :])
+#             up_y = random.randint(0, up_range_y-1)
+#             left_y = random.randint(0, left_range_y-1)
+#             y_train_cropped.append(y_[:, up_y:up_y+up_range_y, left_y:left_y+left_range_y, :])
+#     return x_train_cropped, y_train_cropped
+
+
+# def flip_horizontally(x_train, y_train):
+#     # Flip horizontally
+#     x_train_flipped, y_train_flipped = [], []
+#     for x in x_train:
+#         x_train_flipped.append(x[:, :, ::-1, :])
+#     for y in y_train:
+#         y_train_flipped.append(y[:, :, ::-1, :])
+#     x_train += x_train_flipped
+#     y_train += y_train_flipped
+#     return x_train, y_train
+
+
+# def data_augmentation(x_train, y_train, augmentation_methods):
+
+#     return x_train, y_train
