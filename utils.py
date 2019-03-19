@@ -12,30 +12,31 @@ from keras.losses import mean_squared_error
 from scipy.ndimage.filters import gaussian_filter
 
 
-def get_density_map_gaussian(im, points, adaptive_kernel=False, fixed_value=15):
+def get_density_map_gaussian(im, points, adaptive_mode=0, fixed_value=4, with_direction=False, templates=None, normal_distribution_mask=False):
     density_map = np.zeros(im.shape[:2], dtype=np.float32)
     h, w = density_map.shape[:2]
     num_gt = np.squeeze(points).shape[0]
     if num_gt == 0:
         return density_map
 
-    if adaptive_kernel:
+    if adaptive_mode == 1:
         # referred from https://github.com/vlad3996/computing-density-maps/blob/master/make_ShanghaiTech.ipynb
         leafsize = 2048
         tree = scipy.spatial.KDTree(points.copy(), leafsize=leafsize)
-        distances = tree.query(points, k=4)[0]
-
+        distances, locations = tree.query(points, k=4)
+    angle_idx = [0, 45, 90, 135]
     for idx, p in enumerate(points):
         p = np.round(p).astype(int)
         p[0], p[1] = min(h-1, p[1]), min(w-1, p[0])
         if num_gt > 1:
-            if adaptive_kernel:
+            if adaptive_mode == 1:
                 sigma = int(np.sum(distances[idx][1:4]) * 0.1)
-            else:
+            elif adaptive_mode == 0:
                 sigma = fixed_value
         else:
             sigma = fixed_value  # np.average([h, w]) / 2. / 2.
         sigma = max(1, sigma)
+        gaussian_radius = sigma * 3
 
         # filter_mask = np.zeros_like(density_map)
         # gaussian_center = (p[0], p[1])
@@ -43,13 +44,67 @@ def get_density_map_gaussian(im, points, adaptive_kernel=False, fixed_value=15):
         # density_map += gaussian_filter(filter_mask, sigma, mode='constant')
 
         # If you feel that the scipy api is too slow (gaussian_filter) -- Substitute it with codes below
-        # could make it about 100+ times faster, taking around 2 minutes on the whole ShanghaiTech dataset A and B.
+        # could make it about 100+ times faster, taking around 1.5 minutes on the whole ShanghaiTech dataset A and B.
+        if with_direction:
+            dt = np.array(distances[idx][1:4]).tolist()
+            idx_3 = locations[idx][1:4]
+            locations_3 = points[idx_3]
+            idx_near = [d for d in range(len(dt)) if dt[d] < gaussian_radius*2]
+            distances_3 = distances[idx][1:4][idx_near]
+            locations_3 = locations_3[idx_near]
+            if len(distances_3) > 1:
+                weights_add = []
+                for idx_d in range(len(distances_3)):
+                    if distances_3[idx_d] == 0:
+                        if np.mean(distances_3) == 0:
+                            weights_add.append(1/3)
+                        else:
+                            weights_add.append(1/np.mean(distances_3))
+                    else:
+                        weights_add.append(1/distances_3[idx_d])
+                weights_add = np.array(weights_add) / np.sum(weights_add)
+                # print(distances_3, '\n', weights_add)
+                angles_3 = []
+                for l in locations_3:
+                    if l[0] == p[1]:
+                        angle = 90
+                    elif l[1] == p[0]:
+                        angle = 0
+                    else:
+                        slope = (l[1] - p[0]) / (l[0] - p[1])
+                        if np.sin(np.deg2rad(45/2)) < slope < np.sin(np.deg2rad(45/2)):
+                            angle = 45
+                        elif slope > np.sin(np.deg2rad(90-45/2)) or slope < - np.sin(np.deg2rad(90-45/2)):
+                            angle = 90
+                        elif - np.sin(np.deg2rad(45/2)) < slope < np.sin(np.deg2rad(45/2)):
+                            angle = 0
+                        else:
+                            angle = 135
+                    angles_3.append(angle)
+                gaussian_map = np.zeros((gaussian_radius*2+1, gaussian_radius*2+1))
+                for ag_idx in range(len(angles_3)):
+                    # print(angle_idx.index(angles_3[ag_idx]), gaussian_map.shape, templates[angle_idx.index(angles_3[ag_idx])].shape)
+                    temp = cv2.resize(
+                        templates[angle_idx.index(angles_3[ag_idx])] * weights_add[ag_idx], (gaussian_radius*2+1, gaussian_radius*2+1),
+                        interpolation=cv2.INTER_LANCZOS4
+                    )
+                    gaussian_map += (temp / np.sum(temp))
+            else:
+                gaussian_map = np.multiply(
+                    cv2.getGaussianKernel(gaussian_radius*2+1, sigma),
+                    cv2.getGaussianKernel(gaussian_radius*2+1, sigma).T
+                )
+        else:
+            gaussian_map = np.multiply(
+                cv2.getGaussianKernel(gaussian_radius*2+1, sigma),
+                cv2.getGaussianKernel(gaussian_radius*2+1, sigma).T
+            )
+        if normal_distribution_mask:
+            gaussian_map = np.zeros_like(gaussian_map)
+            cv2.circle(gaussian_map, (gaussian_radius, gaussian_radius), gaussian_radius//2, 255, -1)
+        gaussian_map = gaussian_map / np.sum(gaussian_map)
 
-        gaussian_radius = sigma * 2
-        gaussian_map = np.multiply(
-            cv2.getGaussianKernel(gaussian_radius*2+1, sigma),
-            cv2.getGaussianKernel(gaussian_radius*2+1, sigma).T
-        )
+
         x_left, x_right, y_up, y_down = 0, gaussian_map.shape[1], 0, gaussian_map.shape[0]
         # cut the gaussian kernel
         if p[1] < gaussian_radius:
@@ -64,15 +119,19 @@ def get_density_map_gaussian(im, points, adaptive_kernel=False, fixed_value=15):
             max(0, p[0]-gaussian_radius):min(density_map.shape[0], p[0]+gaussian_radius+1),
             max(0, p[1]-gaussian_radius):min(density_map.shape[1], p[1]+gaussian_radius+1)
         ] += gaussian_map[y_up:y_down, x_left:x_right]
+    density_map = density_map / (np.sum(density_map / num_gt))
     return density_map
 
 
 def load_img(path):
     img = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
     img = img / 255.0
-    img[:, :, 0]=(img[:, :, 0] - 0.485) / 0.229
-    img[:, :, 1]=(img[:, :, 1] - 0.456) / 0.224
-    img[:, :, 2]=(img[:, :, 2] - 0.406) / 0.225
+    # img[:, :, 0]=(img[:, :, 0] - 0.485) / 0.229
+    # img[:, :, 1]=(img[:, :, 1] - 0.456) / 0.224
+    # img[:, :, 2]=(img[:, :, 2] - 0.406) / 0.225
+    img[:, :, 0]=(img[:, :, 0] - 0.5) / 1
+    img[:, :, 1]=(img[:, :, 1] - 0.5) / 1
+    img[:, :, 2]=(img[:, :, 2] - 0.5) / 1
     return img.astype(np.float32)
 
 
@@ -90,47 +149,25 @@ def img_from_h5(path):
     return density_map_stride
 
 
-def gen_x_y(img_paths, train_val_test='train', augmentation_methods=[]):
+def gen_x_y(img_paths, train_val_test='train', augmentation_methods=['ori']):
     x, y = [], []
-    idx_shuffle = list(range(len(img_paths)))
-    random.shuffle(idx_shuffle)
-    img_paths = np.array(img_paths)[idx_shuffle].tolist()
     for i in img_paths:
         x_ = load_img(i)
-        x.append(np.expand_dims(x_, axis=0))
-        x.append(np.expand_dims(cv2.flip(x_, 1), axis=0))
         y_ = img_from_h5(i.replace('.jpg', '.h5').replace('images', 'ground'))
-        y.append(np.expand_dims(np.expand_dims(y_, axis=0), axis=-1))
-        y.append(np.expand_dims(np.expand_dims(cv2.flip(y_, 1), axis=0), axis=-1))
-    # if train_val_test == 'train':
-    #     # x, y = data_augmentation(x, y, augmentation_methods=augmentation_methods)
-    #     if 'flip' in augmentation_methods:
-    #         # Flip horizontally
-    #         x_flipped, y_flipped = [], []
-    #         for x_ in x:
-    #             x_flipped.append(x_[:, :, ::-1, :])
-    #         for y_ in y:
-    #             y_flipped.append(y_[:, :, ::-1, :])
-    #         x += x_flipped
-    #         y += y_flipped
-    #     if 'random_crop':
-    #         # Random cropping on training set
-    #         x_cropped, y_cropped = [], []
-    #         num_crop = 2
-    #         for idx_x in range(len(x)):
-    #             up_range_x, left_range_x = (np.array(x[idx_x].shape[1:-1]) / 2).astype(np.int)
-    #             up_range_y, left_range_y = (np.array(y[idx_x].shape[1:-1]) / 2).astype(np.int)
-    #             x_ = x[idx_x]
-    #             y_ = y[idx_x]
-    #             for _ in range(num_crop):
-    #                 up_x = random.randint(0, up_range_x-1)
-    #                 left_x = random.randint(0, left_range_x-1)
-    #                 x_cropped.append(x_[:, up_x:up_x+up_range_x, left_x:left_x+left_range_x, :])
-    #                 up_y = random.randint(0, up_range_y-1)
-    #                 left_y = random.randint(0, left_range_y-1)
-    #                 y_cropped.append(y_[:, up_y:up_y+up_range_y, left_y:left_y+left_range_y, :])
-    #         x, y = random_cropping(x, y)
-        # Shuffle
+        if 'ori' in augmentation_methods:
+            x.append(np.expand_dims(x_, axis=0))
+            y.append(np.expand_dims(np.expand_dims(y_, axis=0), axis=-1))
+        if 'flip' in augmentation_methods and train_val_test == 'train':
+            x.append(np.expand_dims(cv2.flip(x_, 1), axis=0))
+            y.append(np.expand_dims(np.expand_dims(cv2.flip(y_, 1), axis=0), axis=-1))
+    if train_val_test == 'train':
+        random_num = random.randint(7, 77)
+        random.seed(random_num)
+        random.shuffle(x)
+        random.seed(random_num)
+        random.shuffle(y)
+        random.seed(random_num)
+        random.shuffle(img_paths)
     return x, y, img_paths
 
 
@@ -138,27 +175,39 @@ def eval_loss(model, x, y):
     preds = []
     for i in x:
         preds.append(np.squeeze(model.predict(i)))
+    DM = []
     labels = []
     for i in y:
-        labels.append(np.squeeze(i))
+        DM.append(np.squeeze(i))
+        labels.append(round(np.sum(i)))
     losses_DMD = []
     for i in range(len(preds)):
-        losses_DMD.append(np.sum(np.abs(preds[i] - labels[i])))
+        losses_DMD.append(np.sum(np.abs(preds[i] - DM[i])))
     loss_DMD = np.mean(losses_DMD)
     losses_MAE = []
     for i in range(len(preds)):
-        losses_MAE.append(np.abs(np.sum(preds[i]) - np.sum(labels[i])))
+        losses_MAE.append(np.abs(np.sum(preds[i]) - labels[i]))
+    losses_MAPE = []
+    for i in range(len(preds)):
+        losses_MAPE.append(np.abs(np.sum(preds[i]) - labels[i]) / labels[i])
+    losses_MSE = []
+    for i in range(len(preds)):
+        losses_MSE.append(np.square(np.sum(preds[i]) - labels[i]))
+
     loss_DMD = np.mean(losses_DMD)
     loss_MAE = np.mean(losses_MAE)
-    return loss_DMD, loss_MAE
+    loss_MAPE = np.mean(losses_MAPE)
+    loss_MSE = np.sqrt(np.mean(losses_MSE))
+    return loss_DMD, loss_MAE, loss_MAPE, loss_MSE
 
 
-def gen_paths(path_file_root='data/paths_train_val_test', dataset='A'):
+def gen_paths(path_file_root='data/paths_train_val_test', dataset='A', with_validation=False):
     path_file_root_curr = os.path.join(path_file_root, 'paths_'+dataset)
     img_paths = []
-    for i in sorted([os.path.join(path_file_root_curr, p) for p in os.listdir(path_file_root_curr)]):
+    paths = os.listdir(path_file_root_curr) if with_validation else os.listdir(path_file_root_curr)[:2]
+    for i in sorted([os.path.join(path_file_root_curr, p) for p in paths]):
         with open(i, 'r') as fin:
-            img_paths.append(eval(fin.read()))
+            img_paths.append([l.rstrip() for l in fin.readlines()])
     return img_paths    # img_paths_test, img_paths_train, img_paths_val
 
 
@@ -216,23 +265,24 @@ def ssim_eucli_loss(y_true, y_pred, alpha=0.001):
     return loss
 
 
-# def random_cropping(x_train, y_train):
-#     # Random cropping on training set
-#     x_train_cropped, y_train_cropped = [], []
-#     num_crop = 2
-#     for idx_x in range(len(x_train)):
-#         up_range_x, left_range_x = (np.array(x_train[idx_x].shape[1:-1]) / 2).astype(np.int)
-#         up_range_y, left_range_y = (np.array(y_train[idx_x].shape[1:-1]) / 2).astype(np.int)
-#         x_ = x_train[idx_x]
-#         y_ = y_train[idx_x]
-#         for _ in range(num_crop):
-#             up_x = random.randint(0, up_range_x-1)
-#             left_x = random.randint(0, left_range_x-1)
-#             x_train_cropped.append(x_[:, up_x:up_x+up_range_x, left_x:left_x+left_range_x, :])
-#             up_y = random.randint(0, up_range_y-1)
-#             left_y = random.randint(0, left_range_y-1)
-#             y_train_cropped.append(y_[:, up_y:up_y+up_range_y, left_y:left_y+left_range_y, :])
-#     return x_train_cropped, y_train_cropped
+def random_cropping(x_train, y_train, grid=(2, 2)):
+    # Random cropping on training set
+    x_train_cropped, y_train_cropped = [], []
+    num_crop = grid[0] * grid[1]
+    for idx_x in range(len(x_train)):
+        wid_patch, hei_patch = int(x_train[idx_x].shape[1] / grid[0]), int(x_train[idx_x].shape[0] / grid[1])
+        up_range_x, left_range_x = hei_patch * (grid[0] - 1), wid_patch * (grid[1] - 1)
+        # up_range_y, left_range_y = (np.array(y_train[idx_x].shape[0:-1]) * (1 - grid[1])).astype(np.int)
+        x_ = x_train[idx_x]
+        y_ = y_train[idx_x]
+        for _ in range(num_crop):
+            up_x = random.randint(0, up_range_x-1)
+            left_x = random.randint(0, left_range_x-1)
+            x_train_cropped.append(x_[up_x:up_x+hei_patch, left_x:left_x+wid_patch, :])
+            up_y = up_x
+            left_y = left_x
+            y_train_cropped.append(y_[up_y:up_y+hei_patch, left_y:left_y+wid_patch, :])
+    return np.asarray(x_train_cropped), np.asarray(y_train_cropped)
 
 
 # def flip_horizontally(x_train, y_train):
