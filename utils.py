@@ -283,20 +283,3 @@ def random_cropping(x_train, y_train, grid=(2, 2)):
             left_y = left_x
             y_train_cropped.append(y_[up_y:up_y+hei_patch, left_y:left_y+wid_patch, :])
     return np.asarray(x_train_cropped), np.asarray(y_train_cropped)
-
-
-# def flip_horizontally(x_train, y_train):
-#     # Flip horizontally
-#     x_train_flipped, y_train_flipped = [], []
-#     for x in x_train:
-#         x_train_flipped.append(x[:, :, ::-1, :])
-#     for y in y_train:
-#         y_train_flipped.append(y[:, :, ::-1, :])
-#     x_train += x_train_flipped
-#     y_train += y_train_flipped
-#     return x_train, y_train
-
-
-# def data_augmentation(x_train, y_train, augmentation_methods):
-
-#     return x_train, y_train

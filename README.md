@@ -13,9 +13,9 @@
 
 > Still far from the performance in the original paper(MAE 8.6)
 
-|  MAE  |  MSE  | MAPE  | Mean DM Distance |
-| :---: | :---: | :---: | :--------------: |
-| 14.32 | 22.88 | 12.22 |      110.62      |
+|  MAE   |  MSE   |  MAPE  | Mean DM Distance |
+| :----: | :----: | :----: | :--------------: |
+| 13.821 | 22.223 | 12.140 |     110.750      |
 
 ### Dataset:
 
@@ -23,21 +23,27 @@
 
 ### Training Parameters:
 
-1. Loss = ssim_loss + L2
+1. *Loss* = ssim_loss + L2
 
-2. Optimizer = Adam(lr=1e-4)
+2. *Optimizer* = Adam(lr=1e-4)
 
-3. Data augmentation: Flip horizontally.
+3. *Data augmentation*: Flip horizontally.
 
-4. Patch: No patch, input the whole image, output the same shape DM.
+4. *Patch*: No patch, input the whole image, output the same shape DM.
 
-5. Instance normalization: No IN at present.
+5. *Instance normalization*: No IN layers at present, since network with IN layers is very hard to train and IN layers didn't show improvement to the network in my experiments.
 
-6. Pay attention to: The density map output may fade to zeros in 90% initialization, I tried the initialization method in the original paper while it didn't work. When this happens, just restart the kernel and re-run... At least, it worked for me, and got the best model in around 70-th epoch. Any other question, contact [me](zhengpeng0108@gmail.com).
+6. ***Output Zeros***: The density map output may fade to zeros in 95%+ random initialization, I tried the initialization method in the original paper while it didn't work. In the past, when this happens, I just restarted the kernel and re-run. But now, I tried to train different modules(1-5) separately in the first several epochs to get relatively reasonable weights:
 
-7. Loss records:
+   ![structure_lite](images/network_structure_lite.JPG), and it worked out to greatly decrease the probability of the zero-output-phenomena. Any other question, welcome to contact [me](zhengpeng0108@gmail.com).
+
+7. *Weights*: Got best weights in epoch271(405 epochs in total), and here is the loss records:
 
    ![Loss_records](images/loss_records.png)
+
+8. *Prediction example*:
+
+   ![example](images/prediction_example.JPG)
 
 ### Run:
 
