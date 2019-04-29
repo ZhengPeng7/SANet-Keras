@@ -10,9 +10,66 @@ import tensorflow as tf
 import keras.backend as K
 from keras.losses import mean_squared_error
 from scipy.ndimage.filters import gaussian_filter
+from keras.layers import AveragePooling2D
+from skimage.measure import compare_psnr, compare_ssim
 
 
-def get_density_map_gaussian(im, points, adaptive_mode=0, fixed_value=4, with_direction=False, templates=None, normal_distribution_mask=False):
+def get_density_map_gaussian(im, points, adaptive_mode=False, fixed_value=15, fixed_values=None):
+    density_map = np.zeros(im.shape[:2], dtype=np.float32)
+    h, w = density_map.shape[:2]
+    num_gt = np.squeeze(points).shape[0]
+    if num_gt == 0:
+        return density_map
+
+    if adaptive_mode == True:
+        fixed_values = None
+        leafsize = 2048
+        tree = scipy.spatial.KDTree(points.copy(), leafsize=leafsize)
+        distances, locations = tree.query(points, k=4)
+    for idx, p in enumerate(points):
+        p = np.round(p).astype(int)
+        p[0], p[1] = min(h-1, p[1]), min(w-1, p[0])
+        if num_gt > 1:
+            if adaptive_mode == 1:
+                sigma = int(np.sum(distances[idx][1:4]) * 0.1)
+            elif adaptive_mode == 0:
+                sigma = fixed_value
+        else:
+            sigma = fixed_value
+        sigma = max(1, sigma)
+        gaussian_radius_no_detection = sigma * 3
+        gaussian_radius = gaussian_radius_no_detection
+
+        if fixed_values is not None:
+            grid_y, grid_x = int(p[0]//(h/3)), int(p[1]//(w/3))
+            grid_idx = grid_y * 3 + grid_x
+            gaussian_radius = fixed_values[grid_idx] if fixed_values[grid_idx] else gaussian_radius_no_detection
+        gaussian_map = np.multiply(
+            cv2.getGaussianKernel(gaussian_radius*2+1, sigma),
+            cv2.getGaussianKernel(gaussian_radius*2+1, sigma).T
+        )
+        gaussian_map[gaussian_map < 0.0003] = 0
+        if np.sum(gaussian_map):
+            gaussian_map = gaussian_map / np.sum(gaussian_map)
+        x_left, x_right, y_up, y_down = 0, gaussian_map.shape[1], 0, gaussian_map.shape[0]
+        # cut the gaussian kernel
+        if p[1] < gaussian_radius:
+            x_left = gaussian_radius - p[1]
+        if p[0] < gaussian_radius:
+            y_up = gaussian_radius - p[0]
+        if p[1] + gaussian_radius >= w:
+            x_right = gaussian_map.shape[1] - (gaussian_radius + p[1] - w) - 1
+        if p[0] + gaussian_radius >= h:
+            y_down = gaussian_map.shape[0] - (gaussian_radius + p[0] - h) - 1
+        density_map[
+            max(0, p[0]-gaussian_radius):min(density_map.shape[0], p[0]+gaussian_radius+1),
+            max(0, p[1]-gaussian_radius):min(density_map.shape[1], p[1]+gaussian_radius+1)
+        ] += gaussian_map[y_up:y_down, x_left:x_right]
+    # density_map[density_map < 0.0003] = 0
+    density_map = density_map / (np.sum(density_map / num_gt))
+    return density_map
+
+def get_density_map_gaussian_old(im, points, adaptive_mode=0, fixed_value=15, with_direction=False, templates=None, normal_distribution_mask=False):
     density_map = np.zeros(im.shape[:2], dtype=np.float32)
     h, w = density_map.shape[:2]
     num_gt = np.squeeze(points).shape[0]
@@ -126,12 +183,12 @@ def get_density_map_gaussian(im, points, adaptive_mode=0, fixed_value=4, with_di
 def load_img(path):
     img = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
     img = img / 255.0
-    # img[:, :, 0]=(img[:, :, 0] - 0.485) / 0.229
-    # img[:, :, 1]=(img[:, :, 1] - 0.456) / 0.224
-    # img[:, :, 2]=(img[:, :, 2] - 0.406) / 0.225
-    img[:, :, 0]=(img[:, :, 0] - 0.5) / 1
-    img[:, :, 1]=(img[:, :, 1] - 0.5) / 1
-    img[:, :, 2]=(img[:, :, 2] - 0.5) / 1
+    img[:, :, 0]=(img[:, :, 0] - 0.485) / 0.229
+    img[:, :, 1]=(img[:, :, 1] - 0.456) / 0.224
+    img[:, :, 2]=(img[:, :, 2] - 0.406) / 0.225
+    # img[:, :, 0]=(img[:, :, 0] - 0.5) / 1
+    # img[:, :, 1]=(img[:, :, 1] - 0.5) / 1
+    # img[:, :, 2]=(img[:, :, 2] - 0.5) / 1
     return img.astype(np.float32)
 
 
@@ -154,6 +211,7 @@ def gen_x_y(img_paths, train_val_test='train', augmentation_methods=['ori']):
     for i in img_paths:
         x_ = load_img(i)
         y_ = img_from_h5(i.replace('.jpg', '.h5').replace('images', 'ground'))
+        x_, y_ = fix_singular_shape(x_), fix_singular_shape(y_)
         if 'ori' in augmentation_methods:
             x.append(np.expand_dims(x_, axis=0))
             y.append(np.expand_dims(np.expand_dims(y_, axis=0), axis=-1))
@@ -171,7 +229,7 @@ def gen_x_y(img_paths, train_val_test='train', augmentation_methods=['ori']):
     return x, y, img_paths
 
 
-def eval_loss(model, x, y):
+def eval_loss(model, x, y, quality=False):
     preds = []
     for i in x:
         preds.append(np.squeeze(model.predict(i)))
@@ -182,7 +240,7 @@ def eval_loss(model, x, y):
         labels.append(round(np.sum(i)))
     losses_DMD = []
     for i in range(len(preds)):
-        losses_DMD.append(np.sum(np.abs(preds[i] - DM[i])))
+        losses_DMD.append(np.mean(np.square(preds[i] - DM[i]))*5e7)     # mean of Frobenius norm
     loss_DMD = np.mean(losses_DMD)
     losses_MAE = []
     for i in range(len(preds)):
@@ -198,6 +256,16 @@ def eval_loss(model, x, y):
     loss_MAE = np.mean(losses_MAE)
     loss_MAPE = np.mean(losses_MAPE)
     loss_MSE = np.sqrt(np.mean(losses_MSE))
+    if quality:
+        PSNR = []
+        SSIM = []
+        for i in range(len(preds)):
+            data_range = np.max([np.max(preds[i]), np.max(DM[i])])-np.min([np.min(preds[i]), np.min(DM[i])])
+            psnr = compare_psnr(preds[i], DM[i], data_range=data_range)
+            ssim = compare_ssim(preds[i], DM[i], data_range=data_range)
+            PSNR.append(psnr)
+            SSIM.append(ssim)
+        return loss_DMD, loss_MAE, loss_MAPE, loss_MSE, np.mean(PSNR), np.mean(SSIM)
     return loss_DMD, loss_MAE, loss_MAPE, loss_MSE
 
 
@@ -265,6 +333,17 @@ def ssim_eucli_loss(y_true, y_pred, alpha=0.001):
     return loss
 
 
+def local_sum_loss(y_true, y_pred, alpha=0.5, grid_pooling=3):
+    y_true_localized = AveragePooling2D((grid_pooling, grid_pooling))(y_true) * (grid_pooling ** 2)
+    y_pred_localized = AveragePooling2D((grid_pooling, grid_pooling))(y_pred) * (grid_pooling ** 2)
+    y_true, y_pred = y_true_localized, y_pred_localized
+    l1 = K.square(K.mean(K.abs(y_true - y_pred)))
+    l2 = K.mean(K.square(y_true - y_pred)) * 1000
+    loss = (1-alpha) * l1 + alpha * l2
+    loss = loss * 1
+    return loss
+
+
 def random_cropping(x_train, y_train, grid=(2, 2)):
     # Random cropping on training set
     x_train_cropped, y_train_cropped = [], []
@@ -278,8 +357,51 @@ def random_cropping(x_train, y_train, grid=(2, 2)):
         for _ in range(num_crop):
             up_x = random.randint(0, up_range_x-1)
             left_x = random.randint(0, left_range_x-1)
-            x_train_cropped.append(x_[up_x:up_x+hei_patch, left_x:left_x+wid_patch, :])
+            x_train_cropped.append(fix_singular_shape(x_[up_x:up_x+hei_patch, left_x:left_x+wid_patch, :]))
             up_y = up_x
             left_y = left_x
-            y_train_cropped.append(y_[up_y:up_y+hei_patch, left_y:left_y+wid_patch, :])
+            y_train_cropped.append(fix_singular_shape(y_[up_y:up_y+hei_patch, left_y:left_y+wid_patch, :]))
     return np.asarray(x_train_cropped), np.asarray(y_train_cropped)
+
+
+def fix_singular_shape(tensor):
+    # Append 0 lines or colums to fix the shapes as integers times of 8, since there are 3 pooling layers.
+    for idx_sp in [0, 1]:
+        remainder = tensor.shape[idx_sp] % 8
+        if remainder != 0:
+            fix_len = 8 - remainder
+            pad_list = []
+            for idx_pdlst in range(len(tensor.shape)):
+                if idx_pdlst != idx_sp:
+                    pad_list.append([0, 0])
+                else:
+                    pad_list.append([int(fix_len/2), fix_len - int(fix_len/2)])
+            tensor = np.pad(tensor, pad_list, 'constant')
+    return tensor
+
+
+# def compare_psnr(img1, img2):
+#     mse = np.mean(np.square(img1 - img2))
+#     if mse:
+#         psnr = 10 * np.log10((255**2)/mse)
+#     else:
+#         psnr = 1e6
+#     return psnr
+    
+
+
+# def flip_horizontally(x_train, y_train):
+#     # Flip horizontally
+#     x_train_flipped, y_train_flipped = [], []
+#     for x in x_train:
+#         x_train_flipped.append(x[:, :, ::-1, :])
+#     for y in y_train:
+#         y_train_flipped.append(y[:, :, ::-1, :])
+#     x_train += x_train_flipped
+#     y_train += y_train_flipped
+#     return x_train, y_train
+
+
+# def data_augmentation(x_train, y_train, augmentation_methods):
+
+#     return x_train, y_train

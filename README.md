@@ -1,5 +1,5 @@
 # SANet-Keras
-> Unofficial implementation of SANet for crowd counting in Keras.
+> An unofficial implementation of SANet for crowd counting in Keras-TF.
 
 ---
 
@@ -11,11 +11,11 @@
 
 *On dataset ShanghaiTech B*
 
-> Still far from the performance in the original paper(MAE 8.6)
+> Still far from the performance in the original paper(MAE 8.4)
 
-|  MAE   |  MSE   |  MAPE  | Mean DM Distance |
-| :----: | :----: | :----: | :--------------: |
-| 13.821 | 22.223 | 12.140 |     110.750      |
+|  MAE   |  MSE   | MAPE | Mean DM Distance |
+| :----: | :----: | :--: | :--------------: |
+| 13.727 | 22.726 | 11.9 |      27.065      |
 
 ### Dataset:
 
@@ -31,13 +31,13 @@
 
 4. *Patch*: No patch, input the whole image, output the same shape DM.
 
-5. *Instance normalization*: No IN layers at present, since network with IN layers is very hard to train and IN layers didn't show improvement to the network in my experiments.
+5. *Instance normalization*: _No IN layers_ at present, since network with IN layers is very hard to train and IN layers didn't show improvement to the network in my experiments.
 
 6. ***Output Zeros***: The density map output may fade to zeros in 95%+ random initialization, I tried the initialization method in the original paper while it didn't work. In the past, when this happens, I just restarted the kernel and re-run. But now, I tried to train different modules(1-5) separately in the first several epochs to get relatively reasonable weights:
 
    ![structure_lite](images/network_structure_lite.JPG), and it worked out to greatly decrease the probability of the zero-output-phenomena. Any other question, welcome to contact [me](zhengpeng0108@gmail.com).
 
-7. *Weights*: Got best weights in epoch271(405 epochs in total), and here is the loss records:
+7. *Weights*: Got best weights in 251-th epoch(300 epochs in total), and here is the loss records:
 
    ![Loss_records](images/loss_records.png)
 
@@ -53,7 +53,7 @@
 
 #### Abstraction:
 
-1. **Network = encoder + decoder**, model plot is [here](./images/SANet_noIN.png):
+1. **Network = encoder + decoder**, model plot is [here](./images/SANet.png):
 
    
 

@@ -4,8 +4,8 @@ from keras_contrib.layers import InstanceNormalization
 from keras.initializers import RandomNormal
 
 
-def SANet(IN=True):
-    input_flow = Input((None, None, 3))
+def SANet(input_shape=(None, None, 3), IN=True):
+    input_flow = Input(input_shape)
 
     # Module 1
     channel_out_1 = 16
@@ -162,9 +162,9 @@ def SANet(IN=True):
     x = Activation('relu')(x)
     x = InstanceNormalization()(x) if IN else x
 
-    # x = Conv2D(16, 5, padding='same', use_bias=(not IN))(x)
-    # x = Activation('relu')(x)
-    # x = InstanceNormalization()(x) if IN else x
+    x = Conv2D(16, 5, padding='same', use_bias=(not IN))(x)
+    x = Activation('relu')(x)
+    x = InstanceNormalization()(x) if IN else x
 
     x = Conv2D(1, 1)(x)
     x = Activation('relu')(x)
