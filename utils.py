@@ -269,10 +269,11 @@ def eval_loss(model, x, y, quality=False):
     return loss_DMD, loss_MAE, loss_MAPE, loss_MSE
 
 
-def gen_paths(path_file_root='data/paths_train_val_test', dataset='A', with_validation=False):
+def gen_paths(path_file_root='data/paths_train_val_test', dataset='A'):
     path_file_root_curr = os.path.join(path_file_root, 'paths_'+dataset)
     img_paths = []
-    paths = os.listdir(path_file_root_curr) if with_validation else os.listdir(path_file_root_curr)[:2]
+    paths = ['paths_test.txt', 'paths_train.txt']
+    print(os.listdir(path_file_root_curr)[:2])
     for i in sorted([os.path.join(path_file_root_curr, p) for p in paths]):
         with open(i, 'r') as fin:
             img_paths.append([l.rstrip() for l in fin.readlines()])

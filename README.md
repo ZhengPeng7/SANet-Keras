@@ -21,6 +21,11 @@
 
 - **ShanghaiTech dataset**: [dropbox](<https://www.dropbox.com/s/fipgjqxl7uj8hd5/ShanghaiTech.zip?dl=0>) or [Baidu Disk](<http://pan.baidu.com/s/1nuAYslz>).
 
+### Env
+`conda install cudatoolkit=10.0 cudnn=7.6.5`
+`pip install -r requirements.txt`
+
+
 ### Training Parameters:
 
 1. *Loss* = ssim_loss + L2
