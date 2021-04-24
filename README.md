@@ -1,5 +1,5 @@
 # SANet-Keras
-> An unofficial implementation of SANet for crowd counting in Keras-TF.
+> An unofficial implementation of SANet for crowd counting in Keras==2.24 + TF==1.14.0.
 
 ---
 
@@ -15,14 +15,15 @@
 
 |  MAE   |  MSE   | MAPE | Mean DM Distance |
 | :----: | :----: | :--: | :--------------: |
-| 13.727 | 22.726 | 11.9 |      27.065      |
+| 12.41 | 20.33 | 0.11 |      4.942      |
 
 ### Dataset:
 
-- **ShanghaiTech dataset**: [dropbox](<https://www.dropbox.com/s/fipgjqxl7uj8hd5/ShanghaiTech.zip?dl=0>) or [Baidu Disk](<http://pan.baidu.com/s/1nuAYslz>).
+- **ShanghaiTech dataset**: [dropbox(backup on my personl google-drive)](https://drive.google.com/file/d/1ZT46P-NRiYAJ7mpG1TzL_ojByGJ33WCd/view?usp=sharing) or [Baidu Disk](<http://pan.baidu.com/s/1nuAYslz>).
 
 ### Env
 `conda install cudatoolkit=10.0 cudnn=7.6.5`
+
 `pip install -r requirements.txt`
 
 
@@ -42,9 +43,9 @@
 
    ![structure_lite](images/network_structure_lite.JPG), and it worked out to greatly decrease the probability of the zero-output-phenomena. Any other question, welcome to contact [me](zhengpeng0108@gmail.com).
 
-7. *Weights*: Got best weights in 251-th epoch(300 epochs in total), and here is the loss records:
+7. *Weights*: On SHB, got best weights in 292-th epoch(300 epochs in total), and here is the loss records:
 
-   ![Loss_records](images/loss_records.png)
+   ![Loss_records](images/loss_records_B.png)
 
 8. *Prediction example*:
 
