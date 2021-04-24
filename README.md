@@ -45,7 +45,7 @@
 
 7. *Weights*: On SHB, got best weights in 292-th epoch(300 epochs in total), and here is the loss records:
 
-   ![Loss_records](images/loss_records_B.png)
+   ![Loss_records](images/loss_records_B.jpg)
 
 8. *Prediction example*:
 
