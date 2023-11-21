@@ -13,7 +13,6 @@ cffi==1.14.5
 chardet==4.0.0
 contextvars==2.4
 cycler==0.10.0
-dataclasses==0.8
 decorator==4.4.2
 defusedxml==0.7.1
 deprecation==2.1.0
